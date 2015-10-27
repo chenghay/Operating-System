@@ -1,0 +1,10 @@
+source /home/likernel/Desktop/finalhalt/weenix-assignment-2.3.0/weenix/kernel/main/gdt.gdb
+source /home/likernel/Desktop/finalhalt/weenix-assignment-2.3.0/weenix/kernel/mm/pagetable.gdb
+source /home/likernel/Desktop/finalhalt/weenix-assignment-2.3.0/weenix/kernel/proc/kthread.gdb
+source /home/likernel/Desktop/finalhalt/weenix-assignment-2.3.0/weenix/kernel/vm/vmmap.gdb
+source /home/likernel/Desktop/finalhalt/weenix-assignment-2.3.0/weenix/kernel/mm/memcheck.py
+source /home/likernel/Desktop/finalhalt/weenix-assignment-2.3.0/weenix/kernel/mm/page.py
+source /home/likernel/Desktop/finalhalt/weenix-assignment-2.3.0/weenix/kernel/mm/slab.py
+source /home/likernel/Desktop/finalhalt/weenix-assignment-2.3.0/weenix/kernel/proc/proc.py
+source /home/likernel/Desktop/finalhalt/weenix-assignment-2.3.0/weenix/kernel/util/debug.py
+source /home/likernel/Desktop/finalhalt/weenix-assignment-2.3.0/weenix/kernel/util/list.py

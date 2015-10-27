@@ -1,0 +1,190 @@
+/******************************************************************************/
+/* Important Spring 2015 CSCI 402 usage information:                          */
+/*                                                                            */
+/* This fils is part of CSCI 402 kernel programming assignments at USC.       */
+/* Please understand that you are NOT permitted to distribute or publically   */
+/*         display a copy of this file (or ANY PART of it) for any reason.    */
+/* If anyone (including your prospective employer) asks you to post the code, */
+/*         you must inform them that you do NOT have permissions to do so.    */
+/* You are also NOT permitted to remove or alter this comment block.          */
+/* If this comment block is removed or altered in a submitted file, 20 points */
+/*         will be deducted.                                                  */
+/******************************************************************************/
+
+#include "types.h"
+#include "globals.h"
+#include "errno.h"
+
+#include "util/debug.h"
+#include "util/string.h"
+
+#include "proc/proc.h"
+#include "proc/kthread.h"
+
+#include "mm/mm.h"
+#include "mm/mman.h"
+#include "mm/page.h"
+#include "mm/pframe.h"
+#include "mm/mmobj.h"
+#include "mm/pagetable.h"
+#include "mm/tlb.h"
+
+#include "fs/file.h"
+#include "fs/vnode.h"
+
+#include "vm/shadow.h"
+#include "vm/vmmap.h"
+
+#include "api/exec.h"
+
+#include "main/interrupt.h"
+
+/* Pushes the appropriate things onto the kernel stack of a newly forked thread
+ * so that it can begin execution in userland_entry.
+ * regs: registers the new thread should have on execution
+ * kstack: location of the new thread's kernel stack
+ * Returns the new stack pointer on success. */
+static uint32_t
+fork_setup_stack(const regs_t *regs, void *kstack)
+{
+        /* Pointer argument and dummy return address, and userland dummy return
+         * address */
+        uint32_t esp = ((uint32_t) kstack) + DEFAULT_STACK_SIZE - (sizeof(regs_t) + 12);
+        *(void **)(esp + 4) = (void *)(esp + 8); /* Set the argument to point to location of struct on stack */
+        memcpy((void *)(esp + 8), regs, sizeof(regs_t)); /* Copy over struct */
+        return esp;
+}
+
+
+/*
+ * The implementation of fork(2). Once this works,
+ * you're practically home free. This is what the
+ * entirety of Weenix has been leading up to.
+ * Go forth and conquer.
+ */
+int
+do_fork(struct regs *regs)
+{
+        /*NOT_YET_IMPLEMENTED("VM: do_fork");*/
+        KASSERT(regs != NULL);
+        dbg(DBG_PRINT, "(GRADING3A 7.a)\n");
+        KASSERT(curproc != NULL);
+        dbg(DBG_PRINT, "(GRADING3A 7.a)\n");
+        KASSERT(curproc->p_state == PROC_RUNNING);
+        dbg(DBG_PRINT, "(GRADING3A 7.a)\n");
+
+        proc_t *childproc=proc_create("childproc");
+        KASSERT(childproc);
+
+        vmmap_t *cmap=vmmap_clone(curproc->p_vmmap);
+        cmap->vmm_proc=childproc;
+        vmmap_destroy(childproc->p_vmmap);/********************/
+        childproc->p_vmmap=cmap;
+       
+        childproc->p_status = curproc->p_status;
+	childproc->p_brk = curproc->p_brk;
+	childproc->p_start_brk = curproc->p_start_brk;
+
+        KASSERT(childproc->p_state == PROC_RUNNING);
+        dbg(DBG_PRINT, "(GRADING3A 7.a)\n");
+        KASSERT(childproc->p_pagedir != NULL);
+        dbg(DBG_PRINT, "(GRADING3A 7.a)\n");
+        
+/*
+        vmarea_t* temp_pvmarea=NULL;
+
+        list_link_t *childbegin=childproc->p_vmmap->vmm_list.l_next;
+
+        list_iterate_begin(&(curproc->p_vmmap->vmm_list),temp_pvmarea,vmarea_t,vma_plink)
+        {
+                if(temp_pvmarea->vma_flags&MAP_PRIVATE)
+                {
+                        mmobj_t *shadow_obj=shadow_create();
+                        shadow_obj->mmo_shadowed=temp_pvmarea->vma_obj;
+                        shadow_obj->mmo_un.mmo_bottom_obj=temp_pvmarea->vma_obj->mmo_un.mmo_bottom_obj;
+
+                        vmarea_t* tpvmarea1=list_item(childbegin,vmarea_t,vma_plink);
+                        mmobj_t *chshadow_obj=shadow_create();
+                        chshadow_obj->mmo_shadowed=temp_pvmarea->vma_obj;
+                        chshadow_obj->mmo_un.mmo_bottom_obj=temp_pvmarea->vma_obj->mmo_un.mmo_bottom_obj;
+                        
+                        temp_pvmarea->vma_obj->mmo_ops->ref(temp_pvmarea->vma_obj);
+
+                        tpvmarea1->vma_obj=chshadow_obj;
+                        temp_pvmarea->vma_obj=shadow_obj;
+             
+                }
+                childbegin=childbegin->l_next;
+
+        }list_iterate_end();
+*/
+
+        list_link_t* pindex=NULL;
+        list_link_t* cindex=NULL;
+        for (pindex = (curproc->p_vmmap->vmm_list.l_next),cindex= (childproc->p_vmmap->vmm_list.l_next);pindex !=&(curproc->p_vmmap->vmm_list);pindex=pindex->l_next,cindex=cindex->l_next)
+        {
+               
+                vmarea_t* temp_pvmarea=list_item(pindex,vmarea_t,vma_plink);
+                vmarea_t* tpvmarea1;
+                 if(temp_pvmarea->vma_flags&MAP_PRIVATE)
+                {
+               
+                        mmobj_t *shadow_obj=shadow_create();
+                        shadow_obj->mmo_shadowed=temp_pvmarea->vma_obj;
+                        shadow_obj->mmo_un.mmo_bottom_obj=temp_pvmarea->vma_obj->mmo_un.mmo_bottom_obj;
+                        temp_pvmarea->vma_obj=shadow_obj;
+
+                        tpvmarea1=list_item(cindex,vmarea_t,vma_plink);
+                        mmobj_t *chshadow_obj=shadow_create();
+                        chshadow_obj->mmo_shadowed=temp_pvmarea->vma_obj->mmo_shadowed;
+                        chshadow_obj->mmo_un.mmo_bottom_obj=temp_pvmarea->vma_obj->mmo_un.mmo_bottom_obj;
+                        chshadow_obj->mmo_shadowed->mmo_ops->ref(chshadow_obj->mmo_shadowed);
+                        list_insert_tail(&(chshadow_obj->mmo_un.mmo_bottom_obj->mmo_un.mmo_vmas), &tpvmarea1->vma_olink);
+                        tpvmarea1->vma_obj=chshadow_obj;
+                }
+                else{
+                        tpvmarea1=list_item(cindex,vmarea_t,vma_plink);
+                        tpvmarea1->vma_obj=temp_pvmarea->vma_obj;
+                        tpvmarea1->vma_obj->mmo_ops->ref(tpvmarea1->vma_obj);
+                        list_insert_tail(&(tpvmarea1->vma_obj->mmo_un.mmo_vmas), &tpvmarea1->vma_olink);
+                }
+                
+                
+        }
+
+
+        pt_unmap_range(curproc->p_pagedir,USER_MEM_LOW,USER_MEM_HIGH);
+        tlb_flush_all();
+
+        kthread_t *chthread=kthread_clone(curthr);
+        chthread->kt_proc=childproc;
+        list_insert_tail(&(childproc->p_threads),&(chthread->kt_plink));
+
+        (chthread->kt_ctx).c_pdptr=childproc->p_pagedir;
+        (chthread->kt_ctx).c_eip=(uint32_t)(userland_entry);
+        regs->r_eax = 0;
+        (chthread->kt_ctx).c_esp=fork_setup_stack(regs, chthread->kt_kstack);
+        /*(chthread->kt_ctx).c_ebp*/
+        (chthread->kt_ctx).c_kstack=(uintptr_t)chthread->kt_kstack;
+        (chthread->kt_ctx). c_kstacksz=DEFAULT_STACK_SIZE;
+        KASSERT(chthread->kt_kstack != NULL);
+        dbg(DBG_PRINT, "(GRADING3A 7.a)\n");
+        /*********how to set return value*********/
+
+        int i = 0;
+	while (i<NFILES)
+	{
+		childproc->p_files[i] = curproc->p_files[i];
+                if(childproc->p_files[i]!=NULL)
+                {
+                        fref(childproc->p_files[i]);
+                }
+                i++;
+	}
+/*      has been added in proc_create();
+        childproc->p_cwd=curproc->p_cwd;
+        vref(childproc->p_cwd);
+*/
+        sched_make_runnable(chthread);
+        return childproc->p_pid;
+}

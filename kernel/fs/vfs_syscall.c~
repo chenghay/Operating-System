@@ -1,0 +1,900 @@
+/******************************************************************************/
+/* Important Spring 2015 CSCI 402 usage information:                          */
+/*                                                                            */
+/* This fils is part of CSCI 402 kernel programming assignments at USC.       */
+/* Please understand that you are NOT permitted to distribute or publically   */
+/*         display a copy of this file (or ANY PART of it) for any reason.    */
+/* If anyone (including your prospective employer) asks you to post the code, */
+/*         you must inform them that you do NOT have permissions to do so.    */
+/* You are also NOT permitted to remove or alter this comment block.          */
+/* If this comment block is removed or altered in a submitted file, 20 points */
+/*         will be deducted.                                                  */
+/******************************************************************************/
+
+/*
+ *  FILE: vfs_syscall.c
+ *  AUTH: mcc | jal
+ *  DESC:
+ *  DATE: Wed Apr  8 02:46:19 1998
+ *  $Id: vfs_syscall.c,v 1.10 2014/12/22 16:15:17 william Exp $
+ */
+
+#include "kernel.h"
+#include "errno.h"
+#include "globals.h"
+#include "fs/vfs.h"
+#include "fs/file.h"
+#include "fs/vnode.h"
+#include "fs/vfs_syscall.h"
+#include "fs/open.h"
+#include "fs/fcntl.h"
+#include "fs/lseek.h"
+#include "mm/kmalloc.h"
+#include "util/string.h"
+#include "util/printf.h"
+#include "fs/stat.h"
+#include "util/debug.h"
+
+/* To read a file:
+ *      o fget(fd)
+ *      o call its virtual read fs_op
+ *      o update f_pos
+ *      o fput() it
+ *      o return the number of bytes read, or an error
+ *
+ * Error cases you must handle for this function at the VFS level:
+ *      o EBADF
+ *        fd is not a valid file descriptor or is not open for reading.
+ *      o EISDIR
+ *        fd refers to a directory.
+ *
+ * In all cases, be sure you do not leak file refcounts by returning before
+ * you fput() a file that you fget()'ed.
+ */
+int
+do_read(int fd, void *buf, size_t nbytes)
+{
+        /*NOT_YET_IMPLEMENTED("VFS: do_read");*/
+
+        if(fd<0||fd>=NFILES|| curproc->p_files[fd]==NULL)
+        {
+                return -EBADF; 
+        }
+        if(S_ISDIR(curproc->p_files[fd]->f_vnode->vn_mode)==1)
+        {
+                return -EISDIR;
+        }
+        file_t *file1=fget(fd);
+        if((file1->f_mode!=FMODE_READ)&&(file1->f_mode!=(FMODE_READ|FMODE_APPEND))&&(file1->f_mode!=(FMODE_WRITE|FMODE_READ))&&(file1->f_mode!=(FMODE_READ|FMODE_WRITE|FMODE_APPEND)))
+        {
+                fput(file1);
+                return -EBADF;
+        }
+        int data_transferred=(file1->f_vnode->vn_ops->read)(file1->f_vnode, file1->f_pos, buf, nbytes);
+
+/*
+        if(data_transferred<0)
+        {
+                fput(file1);
+                return data_transferred;
+        }
+*/
+        KASSERT(data_transferred>=0);
+
+        file1->f_pos+=data_transferred;
+        fput(file1);
+        return data_transferred;
+}
+
+/* Very similar to do_read.  Check f_mode to be sure the file is writable.  If
+ * f_mode & FMODE_APPEND, do_lseek() to the end of the file, call the write
+ * fs_op, and fput the file.  As always, be mindful of refcount leaks.
+ *
+ * Error cases you must handle for this function at the VFS level:
+ *      o EBADF
+ *        fd is not a valid file descriptor or is not open for writing.
+ */
+int
+do_write(int fd, const void *buf, size_t nbytes)
+{
+        /*NOT_YET_IMPLEMENTED("VFS: do_write");*/
+
+        if(fd<0||fd>=NFILES|| curproc->p_files[fd]==NULL)
+        {
+                return -EBADF; 
+        }
+
+/*
+        if(S_ISDIR(curproc->p_files[fd]->f_vnode->vn_mode)==1)
+        {
+                return -EISDIR;
+        }
+*/
+        KASSERT(S_ISDIR(curproc->p_files[fd]->f_vnode->vn_mode)==0);
+
+        file_t *file1=fget(fd);
+        if((file1->f_mode!=FMODE_WRITE)&&(file1->f_mode!=(FMODE_WRITE|FMODE_APPEND))&&(file1->f_mode!=(FMODE_WRITE|FMODE_READ))&&(file1->f_mode!=(FMODE_READ|FMODE_WRITE|FMODE_APPEND)))
+        {
+                fput(file1);
+                return -EBADF;
+        }
+        if((file1->f_mode==(FMODE_WRITE|FMODE_APPEND))||(file1->f_mode==(FMODE_READ|FMODE_WRITE|FMODE_APPEND)))
+        {
+                int res1=do_lseek(fd,0, SEEK_END);
+/*
+                if(res1<0)
+                {
+                        fput(file1);
+                        return res1;
+                }
+*/
+                KASSERT(res1>=0);
+        }
+        int data_transferred=(file1->f_vnode->vn_ops->write)(file1->f_vnode, file1->f_pos, buf, nbytes);
+
+/*        
+        if(data_transferred<0)
+        {
+                fput(file1);
+                return data_transferred;
+        }
+*/
+         KASSERT(data_transferred>=0);
+
+        KASSERT((S_ISCHR(file1->f_vnode->vn_mode))||(S_ISBLK(file1->f_vnode->vn_mode))||((S_ISREG(file1->f_vnode->vn_mode))&&(file1->f_pos<=file1->f_vnode->vn_len)));
+        dbg(DBG_PRINT,"(GRADING2A 3.a)\n");
+
+        file1->f_pos+=data_transferred;
+        fput(file1);
+        return data_transferred;
+}
+
+/*
+ * Zero curproc->p_files[fd], and fput() the file. Return 0 on success
+ *
+ * Error cases you must handle for this function at the VFS level:
+ *      o EBADF
+ *        fd isn't a valid open file descriptor.
+ */
+int
+do_close(int fd)
+{
+        /*NOT_YET_IMPLEMENTED("VFS: do_close");*/       
+        if(fd<0||fd>=NFILES|| curproc->p_files[fd]==NULL)
+        {
+                return -EBADF; 
+        }
+        fput(curproc->p_files[fd]);
+        curproc->p_files[fd]=NULL;
+        return 0;
+}
+
+/* To dup a file:
+ *      o fget(fd) to up fd's refcount
+ *      o get_empty_fd()
+ *      o point the new fd to the same file_t* as the given fd
+ *      o return the new file descriptor
+ *
+ * Don't fput() the fd unless something goes wrong.  Since we are creating
+ * another reference to the file_t*, we want to up the refcount.
+ *
+ * Error cases you must handle for this function at the VFS level:
+ *      o EBADF
+ *        fd isn't an open file descriptor.
+ *      o EMFILE
+ *        The process already has the maximum number of file descriptors open
+ *        and tried to open a new one.
+ */
+int
+do_dup(int fd)
+{
+        /*NOT_YET_IMPLEMENTED("VFS: do_dup");*/
+        if(fd<0||fd>=NFILES|| curproc->p_files[fd]==NULL)
+        {
+                return -EBADF; 
+        }
+        file_t *file1=fget(fd);
+        int newfd=get_empty_fd(curproc);
+/*
+        if(newfd==-EMFILE)
+        {
+                fput(file1);
+                return -EMFILE;
+        }
+*/
+        KASSERT(newfd!=-EMFILE);
+
+        curproc->p_files[newfd]=file1;
+        return newfd;
+}
+
+/* Same as do_dup, but insted of using get_empty_fd() to get the new fd,
+ * they give it to us in 'nfd'.  If nfd is in use (and not the same as ofd)
+ * do_close() it first.  Then return the new file descriptor.
+ *
+ * Error cases you must handle for this function at the VFS level:
+ *      o EBADF
+ *        ofd isn't an open file descriptor, or nfd is out of the allowed
+ *        range for file descriptors.
+ */
+int
+do_dup2(int ofd, int nfd)
+{
+        /*NOT_YET_IMPLEMENTED("VFS: do_dup2");*/
+
+        if(ofd<0||ofd>=NFILES|| curproc->p_files[ofd]==NULL)
+        { 
+                return -EBADF; 
+        }
+
+
+        if(nfd<0||nfd>=NFILES)
+        {
+                return -EBADF; 
+        }
+
+        KASSERT(nfd>=0&&nfd<NFILES);
+
+        if(curproc->p_files[nfd]!=NULL&&nfd!=ofd)
+        {
+                int reval1=do_close(nfd);
+/*
+                if(reval1<0)
+                { 
+                        return reval1;
+                }
+*/
+                KASSERT(reval1>=0);
+
+        }
+        if(curproc->p_files[nfd]==NULL)
+        {
+                curproc->p_files[nfd]=fget(ofd);
+        }
+        return nfd;
+}
+
+/*
+ * This routine creates a special file of the type specified by 'mode' at
+ * the location specified by 'path'. 'mode' should be one of S_IFCHR or
+ * S_IFBLK (you might note that mknod(2) normally allows one to create
+ * regular files as well-- for simplicity this is not the case in Weenix).
+ * 'devid', as you might expect, is the device identifier of the device
+ * that the new special file should represent.
+ *
+ * You might use a combination of dir_namev, lookup, and the fs-specific
+ * mknod (that is, the containing directory's 'mknod' vnode operation).
+ * Return the result of the fs-specific mknod, or an error.
+ *
+ * Error cases you must handle for this function at the VFS level:
+ *      o EINVAL
+ *        mode requested creation of something other than a device special
+ *        file.
+ *      o EEXIST
+ *        path already exists.
+ *      o ENOENT
+ *        A directory component in path does not exist.
+ *      o ENOTDIR
+ *        A component used as a directory in path is not, in fact, a directory.
+ *      o ENAMETOOLONG
+ *        A component of path was too long.
+ */
+int
+do_mknod(const char *path, int mode, unsigned devid)
+{
+        /*NOT_YET_IMPLEMENTED("VFS: do_mknod");*/
+/*
+        if(strlen(path)>MAXPATHLEN)
+        {
+                return -ENAMETOOLONG;
+        }
+*/
+        KASSERT(strlen(path)<=MAXPATHLEN);
+
+/*
+        if(S_ISCHR(mode)==0&&S_ISBLK(mode)==0)
+        {
+                return -EINVAL;
+        }
+*/
+        KASSERT(S_ISCHR(mode)==1||S_ISBLK(mode)==1);
+
+        size_t namelen;
+        const char *name=NULL;
+        vnode_t* tempresult=NULL;
+        vnode_t* finalresult=NULL;
+        int reval1=dir_namev(path,&namelen,&name,NULL,&tempresult);
+
+/*
+        if(reval1<0)
+        {
+                return reval1;
+        }
+*/
+        KASSERT(reval1>=0);
+
+/*
+        if(strlen(name)>NAME_LEN)
+        {
+                return -ENAMETOOLONG;
+        }
+*/
+        KASSERT(strlen(name)<=NAME_LEN);
+
+        int reval2=lookup(tempresult,name,namelen,&finalresult);
+
+/*        
+        if(reval2==0)
+        {
+                vput(tempresult);
+                vput(finalresult);
+                return -EEXIST; 
+        }
+*/
+        KASSERT(reval2!=0);
+
+        int reval3=0;
+        if(reval2<0)
+        {
+/*
+                if(reval2==-ENOTDIR)
+                {
+                        vput(tempresult);
+                        return reval2;
+                }
+*/
+                KASSERT(reval2!=-ENOTDIR);
+
+/*
+                if(reval2==-ENAMETOOLONG)
+                {
+                        vput(tempresult);
+                        return reval2;
+                }
+*/
+                KASSERT(reval2!=-ENAMETOOLONG);
+
+                KASSERT(NULL!=tempresult->vn_ops->mknod);
+                dbg(DBG_PRINT,"(GRADING2A 3.b)\n");
+                
+                reval3=(tempresult->vn_ops->mknod)(tempresult, name,namelen,mode,devid);
+                vput(tempresult);
+        }
+        return reval3;
+}
+
+/* Use dir_namev() to find the vnode of the dir we want to make the new
+ * directory in.  Then use lookup() to make sure it doesn't already exist.
+ * Finally call the dir's mkdir vn_ops. Return what it returns.
+ *
+ * Error cases you must handle for this function at the VFS level:
+ *      o EEXIST
+ *        path already exists.
+ *      o ENOENT
+ *        A directory component in path does not exist.
+ *      o ENOTDIR
+ *        A component used as a directory in path is not, in fact, a directory.
+ *      o ENAMETOOLONG
+ *        A component of path was too long.
+ */
+int
+do_mkdir(const char *path)
+{
+        /*NOT_YET_IMPLEMENTED("VFS: do_mkdir");*/
+
+/*
+        if(strlen(path)>MAXPATHLEN)
+        {
+                return -ENAMETOOLONG;
+        }
+*/
+        KASSERT(strlen(path)<=MAXPATHLEN);
+
+        size_t namelen;
+        const char *name=NULL;
+        vnode_t* tempresult=NULL;
+        vnode_t* finalresult=NULL;
+        int reval1=dir_namev(path,&namelen,&name,NULL,&tempresult);
+        if(reval1<0)
+        {
+                return reval1;
+        }
+
+        int reval2=lookup(tempresult,name,namelen,&finalresult);
+        if(reval2==0)
+        {
+                vput(tempresult);
+                vput(finalresult);
+                return -EEXIST; 
+        }
+        int reval3=0;
+        if(reval2<0)
+        {
+                if(reval2==-ENOTDIR)
+                {
+                        vput(tempresult);
+                        return reval2;
+                }
+                if(reval2==-ENAMETOOLONG)
+                {
+                        vput(tempresult);
+                        return reval2;
+                }
+                
+                KASSERT(NULL!=tempresult->vn_ops->mkdir);
+                dbg(DBG_PRINT,"(GRADING2A 3.c)\n");
+                
+                reval3=(tempresult->vn_ops->mkdir)(tempresult,name,namelen);
+                vput(tempresult);
+        }
+        return reval3;
+}
+
+/* Use dir_namev() to find the vnode of the directory containing the dir to be
+ * removed. Then call the containing dir's rmdir v_op.  The rmdir v_op will
+ * return an error if the dir to be removed does not exist or is not empty, so
+ * you don't need to worry about that here. Return the value of the v_op,
+ * or an error.
+ *
+ * Error cases you must handle for this function at the VFS level:
+ *      o EINVAL
+ *        path has "." as its final component.
+ *      o ENOTEMPTY
+ *        path has ".." as its final component.
+ *      o ENOENT
+ *        A directory component in path does not exist.
+ *      o ENOTDIR
+ *        A component used as a directory in path is not, in fact, a directory.
+ *      o ENAMETOOLONG
+ *        A component of path was too long.
+ */
+int
+do_rmdir(const char *path)
+{
+        /*NOT_YET_IMPLEMENTED("VFS: do_rmdir");*/
+        size_t namelen;
+        const char *name=NULL;
+        vnode_t* tempresult=NULL;
+        vnode_t* finalresult=NULL;
+        int reval1=dir_namev(path,&namelen,&name,NULL,&tempresult);/*tempresult reference++*/
+        if(reval1<0)
+        {
+                return reval1;
+        }
+
+        if(strcmp(name,".")==0)
+        {
+                vput(tempresult);
+                return -EINVAL;
+        }
+        if(strcmp(name,"..")==0)
+        {
+                vput(tempresult);
+                return -ENOTEMPTY;
+        }
+    
+        int reval2=lookup(tempresult,name,namelen,&finalresult);/*finalresult reference++*/
+        if(reval2<0)
+        {
+                vput(tempresult);
+                return reval2;
+        }
+
+        if(S_ISDIR(finalresult->vn_mode)==0)
+        {
+                vput(tempresult);
+                vput(finalresult);
+                return -ENOTDIR;
+        }
+        
+        KASSERT(NULL!=tempresult->vn_ops->rmdir);
+        dbg(DBG_PRINT,"(GRADING2A 3.d)\n");
+        
+        int reval3=(tempresult->vn_ops->rmdir)(tempresult,name,namelen);
+        if(reval3<0)
+        {
+                vput(tempresult);
+                vput(finalresult);
+                return reval3;
+        }
+        vput(tempresult);
+        vput(finalresult);
+        return reval3;
+}
+
+/*
+ * Same as do_rmdir, but for files.
+ *
+ * Error cases you must handle for this function at the VFS level:
+ *      o EISDIR
+ *        path refers to a directory.
+ *      o ENOENT
+ *        A component in path does not exist.
+ *      o ENOTDIR
+ *        A component used as a directory in path is not, in fact, a directory.
+ *      o ENAMETOOLONG
+ *        A component of path was too long.
+ */
+int
+do_unlink(const char *path)
+{
+        /*NOT_YET_IMPLEMENTED("VFS: do_unlink");*/
+
+        size_t namelen;
+        const char *name=NULL;
+        vnode_t* tempresult=NULL;
+        vnode_t* finalresult=NULL;
+        int reval1=dir_namev(path,&namelen,&name,NULL,&tempresult);
+        
+/*
+        if(reval1<0)
+        {
+                return reval1;
+        }
+*/
+        KASSERT(reval1>=0);
+        
+        int reval2=lookup(tempresult,name,namelen,&finalresult);
+        if(reval2<0)
+        {
+                vput(tempresult);
+                return reval2;
+        }
+        
+        if(S_ISDIR(finalresult->vn_mode)==1)
+        {
+                vput(tempresult);
+                vput(finalresult);
+                return -EISDIR;
+        }
+        
+        KASSERT(NULL!=tempresult->vn_ops->unlink);
+        dbg(DBG_PRINT,"(GRADING2A 3.e)\n");  
+        
+        int reval3=(tempresult->vn_ops->unlink)(tempresult,name,namelen);
+
+/*        
+        if(reval3<0)
+        {
+                vput(tempresult);
+                vput(finalresult);
+                return reval3;
+        }
+*/
+        KASSERT(reval3>=0);
+
+        vput(tempresult);
+        vput(finalresult);
+        return reval3;
+}
+
+/* To link:
+ *      o open_namev(from)
+ *      o dir_namev(to)
+ *      o call the destination dir's (to) link vn_ops.
+ *      o return the result of link, or an error
+ *
+ * Remember to vput the vnodes returned from open_namev and dir_namev.
+ *
+ * Error cases you must handle for this function at the VFS level:
+ *      o EEXIST
+ *        to already exists.
+ *      o ENOENT
+ *        A directory component in from or to does not exist.
+ *      o ENOTDIR
+ *        A component used as a directory in from or to is not, in fact, a
+ *        directory.
+ *      o ENAMETOOLONG
+ *        A component of from or to was too long.
+ *      o EISDIR
+ *        from is a directory.
+ */
+int
+do_link(const char *from, const char *to)
+{
+        /*NOT_YET_IMPLEMENTED("VFS: do_link");*/
+        vnode_t* fromvnode1=NULL;
+        int res1=open_namev(from,O_RDONLY,&fromvnode1,NULL);
+        if(res1<0)
+        {
+                return res1;
+        }
+        if(S_ISDIR(fromvnode1->vn_mode)==1)
+        {
+                vput(fromvnode1);
+                return -EISDIR;
+        }
+
+        size_t namelen;
+        const char *name=NULL;
+        vnode_t* tovnode1=NULL;
+        vnode_t* tovnode2=NULL;
+        int res2=dir_namev(to,&namelen,&name,NULL,&tovnode1);
+        if(res2<0)
+        {
+                vput(fromvnode1);
+                return res2;
+        }
+
+        int res3=lookup(tovnode1,name,namelen,&tovnode2);
+
+        if(res3==0)
+        {
+                vput(fromvnode1);
+                vput(tovnode1);
+                vput(tovnode2);
+                return -EEXIST; 
+        }
+
+        int res4=(tovnode1->vn_ops->link)(fromvnode1,tovnode1,name,namelen);
+
+
+        if(res4<0)
+        {
+                vput(fromvnode1);
+                vput(tovnode1);
+                return res4; 
+        }
+
+        vput(tovnode1);
+        vput(fromvnode1);
+        return res4;
+}
+
+/*      o link newname to oldname
+ *      o unlink oldname
+ *      o return the value of unlink, or an error
+ *
+ * Note that this does not provide the same behavior as the
+ * Linux system call (if unlink fails then two links to the
+ * file could exist).
+ */
+int
+do_rename(const char *oldname, const char *newname)
+{
+        /*NOT_YET_IMPLEMENTED("VFS: do_rename");*/
+        int res1=do_link(oldname,newname);
+        int res2;
+/*
+        if(res1<0)
+        {
+                return res1;
+        }
+*/
+        KASSERT(res1>=0);
+        res2=do_unlink(oldname);
+        return res2;
+}
+
+/* Make the named directory the current process's cwd (current working
+ * directory).  Don't forget to down the refcount to the old cwd (vput()) and
+ * up the refcount to the new cwd (open_namev() or vget()). Return 0 on
+ * success.
+ *
+ * Error cases you must handle for this function at the VFS level:
+ *      o ENOENT
+ *        path does not exist.
+ *      o ENAMETOOLONG
+ *        A component of path was too long.
+ *      o ENOTDIR
+ *        A component of path is not a directory.
+ */
+int
+do_chdir(const char *path)
+{
+        /*NOT_YET_IMPLEMENTED("VFS: do_chdir");*/
+        size_t namelen;
+        const char *name=NULL;
+        vnode_t* tempresult=NULL;
+        vnode_t* finalresult=NULL;
+        int res1=dir_namev(path,&namelen,&name,NULL,&tempresult);
+/*
+        if(res1<0)
+        {
+                return res1;
+        }
+*/
+        KASSERT(res1>=0);
+
+        int res2=lookup(tempresult,name,namelen,&finalresult);
+        if(res2<0)
+        {
+                vput(tempresult);
+                return res2;
+        }
+        if(S_ISDIR(finalresult->vn_mode)==0)
+        {
+                vput(tempresult);
+                vput(finalresult);
+                return -ENOTDIR;
+        }
+        vput(curproc->p_cwd);
+        curproc->p_cwd=finalresult;
+        vput(tempresult);
+        return 0;
+}
+
+/* Call the readdir fs_op on the given fd, filling in the given dirent_t*.
+ * If the readdir fs_op is successful, it will return a positive value which
+ * is the number of bytes copied to the dirent_t.  You need to increment the
+ * file_t's f_pos by this amount.  As always, be aware of refcounts, check
+ * the return value of the fget and the virtual function, and be sure the
+ * virtual function exists (is not null) before calling it.
+ *
+ * Return either 0 or sizeof(dirent_t), or -errno.
+ *
+ * Error cases you must handle for this function at the VFS level:
+ *      o EBADF
+ *        Invalid file descriptor fd.
+ *      o ENOTDIR
+ *        File descriptor does not refer to a directory.
+ */
+int
+do_getdent(int fd, struct dirent *dirp)
+{
+        /*NOT_YET_IMPLEMENTED("VFS: do_getdent");*/
+
+        if(curproc->p_files[fd]==NULL||fd<0||fd>=NFILES)
+        {
+                return -EBADF; 
+        }
+        if(S_ISDIR((curproc->p_files[fd])->f_vnode->vn_mode)==0)
+        {
+                return -ENOTDIR;
+        }
+        file_t *fileobj=fget(fd);
+
+/*
+        if(fileobj->f_vnode->vn_ops->readdir==NULL)
+        {
+                fput(fileobj);
+                return -1;
+        }
+*/
+        KASSERT(fileobj->f_vnode->vn_ops->readdir!=NULL);
+
+        int res1=(fileobj->f_vnode->vn_ops->readdir)(fileobj->f_vnode,fileobj->f_pos,dirp);
+        if(res1<=0)
+        {
+                fput(fileobj);
+                return res1;
+        }
+        fput(fileobj);
+        fileobj->f_pos+=res1;
+        return sizeof(dirent_t);
+}
+
+/*
+ * Modify f_pos according to offset and whence.
+ *
+ * Error cases you must handle for this function at the VFS level:
+ *      o EBADF
+ *        fd is not an open file descriptor.
+ *      o EINVAL
+ *        whence is not one of SEEK_SET, SEEK_CUR, SEEK_END; or the resulting
+ *        file offset would be negative.
+ */
+int
+do_lseek(int fd, int offset, int whence)
+{
+        /*NOT_YET_IMPLEMENTED("VFS: do_lseek");*/
+
+        if(curproc->p_files[fd]==NULL||fd<0||fd>=NFILES)
+        {
+                return -EBADF; 
+        }
+        file_t *fileobj=fget(fd);
+        int res=0;
+        if(whence==SEEK_SET)
+        {
+                if(offset<0)
+                {
+                        fput(fileobj);
+                        return -EINVAL;
+                }
+                res=offset;
+        }
+        else if(whence==SEEK_CUR)
+        {
+                res=fileobj->f_pos+offset;
+        }
+        else if(whence==SEEK_END)
+        {
+                res=fileobj->f_vnode->vn_len+offset;
+        }
+        else
+        {
+                fput(fileobj);
+                return -EINVAL;
+        }
+        
+        if(res<0)
+        {
+                fput(fileobj);
+                return -EINVAL;
+        }
+        fileobj->f_pos=res;
+        fput(fileobj);
+        return res;
+}
+
+/*
+ * Find the vnode associated with the path, and call the stat() vnode operation.
+ *
+ * Error cases you must handle for this function at the VFS level:
+ *      o ENOENT
+ *        A component of path does not exist.
+ *      o ENOTDIR
+ *        A component of the path prefix of path is not a directory.
+ *      o ENAMETOOLONG
+ *        A component of path was too long.
+ */
+int
+do_stat(const char *path, struct stat *buf)
+{
+        /*NOT_YET_IMPLEMENTED("VFS: do_stat");*/
+        size_t namelen;
+        const char *name=NULL;
+        vnode_t* tempresult=NULL;
+        vnode_t* finalresult=NULL;
+        int res1=dir_namev(path,&namelen,&name,NULL,&tempresult);
+        if(res1<0)
+        {
+                return res1;
+        }
+        int res2=lookup(tempresult,name,namelen,&finalresult);
+        if(res2<0)
+        {
+                vput(tempresult);
+                return res2;
+        }
+        
+        KASSERT(NULL!=finalresult->vn_ops->stat);
+        dbg(DBG_PRINT,"(GRADING2A 3.f)\n");
+        
+        int res3=(finalresult->vn_ops->stat)(finalresult,buf);
+        vput(tempresult);
+        vput(finalresult);
+        return res3;
+}
+
+#ifdef __MOUNTING__
+/*
+ * Implementing this function is not required and strongly discouraged unless
+ * you are absolutely sure your Weenix is perfect.
+ *
+ * This is the syscall entry point into vfs for mounting. You will need to
+ * create the fs_t struct and populate its fs_dev and fs_type fields before
+ * calling vfs's mountfunc(). mountfunc() will use the fields you populated
+ * in order to determine which underlying filesystem's mount function should
+ * be run, then it will finish setting up the fs_t struct. At this point you
+ * have a fully functioning file system, however it is not mounted on the
+ * virtual file system, you will need to call vfs_mount to do this.
+ *
+ * There are lots of things which can go wrong here. Make sure you have good
+ * error handling. Remember the fs_dev and fs_type buffers have limited size
+ * so you should not write arbitrary length strings to them.
+ */
+int
+do_mount(const char *source, const char *target, const char *type)
+{
+        NOT_YET_IMPLEMENTED("MOUNTING: do_mount");
+        return -EINVAL;
+}
+
+/*
+ * Implementing this function is not required and strongly discouraged unless
+ * you are absolutley sure your Weenix is perfect.
+ *
+ * This function delegates all of the real work to vfs_umount. You should not worry
+ * about freeing the fs_t struct here, that is done in vfs_umount. All this function
+ * does is figure out which file system to pass to vfs_umount and do good error
+ * checking.
+ */
+int
+do_umount(const char *target)
+{
+        NOT_YET_IMPLEMENTED("MOUNTING: do_umount");
+        return -EINVAL;
+}
+#endif
